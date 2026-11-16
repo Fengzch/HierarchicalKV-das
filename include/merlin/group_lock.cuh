@@ -70,20 +70,15 @@ class group_shared_mutex {
     CUDA_CHECK(hipFree(d_unique_flag_));
   }
 
-  void lock_read() {
+  void lock_read(hipStream_t stream = 0) {
     for (;;) {
       while (h_update_count_.load(std::memory_order_acquire)) {
       }
       h_read_count_.fetch_add(1, std::memory_order_acq_rel);
       if (h_update_count_.load(std::memory_order_acquire) == 0) {
-        {
-          hipStream_t stream;
-          CUDA_CHECK(hipStreamCreate(&stream));
-          hipLaunchKernelGGL(( group_lock::lock_read_kernel), dim3(1), dim3(1), 0, stream, d_update_count_,
-                                                            d_read_count_);
-          CUDA_CHECK(hipStreamSynchronize(stream));
-          CUDA_CHECK(hipStreamDestroy(stream));
-        }
+        hipLaunchKernelGGL(( group_lock::lock_read_kernel), dim3(1), dim3(1), 0, stream, d_update_count_,
+                                                          d_read_count_);
+        CUDA_CHECK(hipStreamSynchronize(stream));
         break;
       }
       h_read_count_.fetch_sub(1, std::memory_order_acq_rel);
@@ -95,20 +90,15 @@ class group_shared_mutex {
     h_read_count_.fetch_sub(1, std::memory_order_release);
   }
 
-  void lock_update() {
+  void lock_update(hipStream_t stream = 0) {
     for (;;) {
       while (h_read_count_.load(std::memory_order_acquire)) {
       }
       h_update_count_.fetch_add(1, std::memory_order_acq_rel);
       if (h_read_count_.load(std::memory_order_acquire) == 0) {
-        {
-          hipStream_t stream;
-          CUDA_CHECK(hipStreamCreate(&stream));
-         hipLaunchKernelGGL(( group_lock::lock_update_kernel), dim3(1), dim3(1), 0, stream, d_update_count_,
-                                                              d_read_count_);
-          CUDA_CHECK(hipStreamSynchronize(stream));
-          CUDA_CHECK(hipStreamDestroy(stream));
-        }
+        hipLaunchKernelGGL(( group_lock::lock_update_kernel), dim3(1), dim3(1), 0, stream, d_update_count_,
+                                                             d_read_count_);
+        CUDA_CHECK(hipStreamSynchronize(stream));
         break;
       }
       h_update_count_.fetch_sub(1, std::memory_order_acq_rel);
@@ -120,7 +110,7 @@ class group_shared_mutex {
     h_update_count_.fetch_sub(1, std::memory_order_release);
   }
 
-  void lock_update_read() {
+  void lock_update_read(hipStream_t stream = 0) {
     /* Lock unique flag */
     bool expected = false;
     while (!h_unique_flag_.compare_exchange_weak(expected, true,
@@ -150,14 +140,9 @@ class group_shared_mutex {
       h_update_count_.fetch_sub(1, std::memory_order_acq_rel);
     }
 
-    {
-      hipStream_t stream;
-      CUDA_CHECK(hipStreamCreate(&stream));
-     hipLaunchKernelGGL(( group_lock::lock_update_read_kernel), dim3(1), dim3(1), 0, stream, 
-          d_update_count_, d_read_count_, d_unique_flag_);
-      CUDA_CHECK(hipStreamSynchronize(stream));
-      CUDA_CHECK(hipStreamDestroy(stream));
-    }
+    hipLaunchKernelGGL(( group_lock::lock_update_read_kernel), dim3(1), dim3(1), 0, stream,
+                       d_update_count_, d_read_count_, d_unique_flag_);
+    CUDA_CHECK(hipStreamSynchronize(stream));
   }
 
   void unlock_update_read(hipStream_t stream) {
@@ -219,7 +204,7 @@ class read_shared_lock {
 
   explicit read_shared_lock(group_shared_mutex& mutex, hipStream_t stream = 0)
       : mutex_(&mutex) {
-    mutex_->lock_read();
+    mutex_->lock_read(stream);
     owns_ = true;
     stream_ = stream;
   }
@@ -236,7 +221,7 @@ class read_shared_lock {
 
   void lock() noexcept {
     if (!owns_) {
-      mutex_->lock_read();
+      mutex_->lock_read(stream_);
       owns_ = true;
     }
   }
@@ -260,7 +245,7 @@ class update_shared_lock {
   explicit update_shared_lock(group_shared_mutex& mutex,
                               hipStream_t stream = 0)
       : mutex_(&mutex) {
-    mutex_->lock_update();
+    mutex_->lock_update(stream);
     owns_ = true;
     stream_ = stream;
   }
@@ -277,7 +262,7 @@ class update_shared_lock {
 
   void lock() noexcept {
     if (!owns_) {
-      mutex_->lock_update();
+      mutex_->lock_update(stream_);
       owns_ = true;
     }
   }
@@ -300,7 +285,7 @@ class update_read_lock {
 
   explicit update_read_lock(group_shared_mutex& mutex, hipStream_t stream = 0)
       : mutex_(&mutex) {
-    mutex_->lock_update_read();
+    mutex_->lock_update_read(stream);
     owns_ = true;
     stream_ = stream;
   }
@@ -317,7 +302,7 @@ class update_read_lock {
 
   void lock() {
     assert(!owns_ && "[update_read_lock] trying to lock twice!");
-    mutex_->lock_update_read();
+    mutex_->lock_update_read(stream_);
     owns_ = true;
   }
 
