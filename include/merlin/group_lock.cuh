@@ -156,6 +156,7 @@ class group_shared_mutex {
   }
 
   int update_count() noexcept {
+    std::lock_guard<std::mutex> query_lock(query_mutex_);
     int count = 0;
     int* d_count;
     hipStream_t stream;
@@ -171,6 +172,7 @@ class group_shared_mutex {
   }
 
   int read_count() noexcept {
+    std::lock_guard<std::mutex> query_lock(query_mutex_);
     int count = 0;
     int* d_count;
     hipStream_t stream;
@@ -192,6 +194,7 @@ class group_shared_mutex {
   cuda::atomic<int, cuda::thread_scope_device>* d_update_count_;
   cuda::atomic<int, cuda::thread_scope_device>* d_read_count_;
   cuda::atomic<bool, cuda::thread_scope_device>* d_unique_flag_;
+  std::mutex query_mutex_;
 };
 
 class read_shared_lock {
